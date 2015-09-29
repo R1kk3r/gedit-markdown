@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from gi.repository import Gdk, Gtk, Gedit, GObject, WebKit
+from gi.repository import Gio, Gdk, Gtk, Gedit, GObject, WebKit, GLib
 import codecs
 import os
 import sys
@@ -84,26 +84,56 @@ if not os.path.exists(confDir):
 with open(confFile, "w") as confFile:
 	parser.write(confFile)
 
-class MarkdownPreviewPlugin(GObject.Object, Gedit.WindowActivatable):
-	__gtype_name__ = "MarkdownPreviewPlugin"
-	window = GObject.property(type=Gedit.Window)
-	currentUri = ""
-	overLinkUrl = ""
+class MarkdownPreviewAppActivatable(GObject.Object, Gedit.AppActivatable):
+	app = GObject.property(type=Gedit.App)
 	
 	def __init__(self):
 		GObject.Object.__init__(self)
 	
 	def do_activate(self):
+		markdownPrevItem = Gio.MenuItem.new(_("Update Markdown Preview"), "win.MarkdownPreview")
+		toggleTabItem = Gio.MenuItem.new(_("Toggle Markdown Preview visibility"), "win.ToggleTab")
+
+		self.menu_ext = self.extend_menu("tools-section")
+
+		self.menu_ext.prepend_menu_item(markdownPrevItem)
+		self.menu_ext.prepend_menu_item(toggleTabItem)
+
+		self.app.add_accelerator(markdownShortcut, "win.MarkdownPreview", None);
+		self.app.add_accelerator(markdownVisibilityShortcut, "win.ToggleTab", None);
+	
+	def do_deactivate(self):
+		self.menu_ext = None
+
+class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
+	window = GObject.property(type=Gedit.Window)
+	currentUri = ""
+	overLinkUrl = ""
+
+	def __init__(self):
+		GObject.Object.__init__(self)
+
+	def do_activate(self):
+		markdownPrevAction = Gio.SimpleAction.new("MarkdownPreview",None)
+		toggleTabAction = Gio.SimpleAction.new_stateful("ToggleTab",None, GLib.Variant.new_boolean(markdownVisibility != 0))
+
+		markdownPrevAction.connect('activate', lambda x, y: self.updatePreview(y, False))
+		toggleTabAction.connect('change-state', self.toggleTab)
+
+		self.window.add_action(markdownPrevAction)
+		self.window.add_action(toggleTabAction)
+
 		self.scrolledWindow = Gtk.ScrolledWindow()
 		self.scrolledWindow.set_property("hscrollbar-policy", Gtk.PolicyType.AUTOMATIC)
 		self.scrolledWindow.set_property("vscrollbar-policy", Gtk.PolicyType.AUTOMATIC)
 		self.scrolledWindow.set_property("shadow-type", Gtk.ShadowType.IN)
-		
+
 		self.htmlView = WebKit.WebView()
 		self.htmlView.connect("hovering-over-link", self.onHoveringOverLinkCb)
 		self.htmlView.connect("navigation-policy-decision-requested",
 		                       self.onNavigationPolicyDecisionRequestedCb)
 		self.htmlView.connect("populate-popup", self.onPopulatePopupCb)
+		
 		self.htmlView.load_string((htmlTemplate % ("", )), "text/html", "utf-8", "file:///")
 		
 		self.scrolledWindow.add(self.htmlView)
@@ -111,67 +141,22 @@ class MarkdownPreviewPlugin(GObject.Object, Gedit.WindowActivatable):
 		
 		if markdownVisibility == "1":
 			self.addMarkdownPreviewTab()
-		
-		self.addMenuItems()
-	
+
 	def do_deactivate(self):
-		# Remove menu items.
-		manager = self.window.get_ui_manager()
-		manager.remove_ui(self.uiId)
-		manager.remove_action_group(self.actionGroup1)
-		manager.remove_action_group(self.actionGroup2)
+		self.window.remove_action("MarkdownPreview")
+		self.window.remove_action("ToggleTab")
 		
 		# Remove Markdown Preview from the panel.
 		self.removeMarkdownPreviewTab()
-	
+
 	def do_update_state(self):
-		self.actionGroup1.set_sensitive(self.window.get_active_document() != None)
-	
-	def addMarkdownPreviewTab(self):
-		if markdownPanel == "side":
-			panel = self.window.get_side_panel()
-		else:
-			panel = self.window.get_bottom_panel()
-		
-		image = Gtk.Image()
-		image.set_from_icon_name("gnome-mime-text-html", Gtk.IconSize.MENU)
-		
-		panel.add_item(self.scrolledWindow, "MarkdownPreview", _("Markdown Preview"), image)
-		panel.show()
-		panel.activate_item(self.scrolledWindow)
-	
-	def addMenuItems(self):
-		manager = self.window.get_ui_manager()
-		
-		self.actionGroup1 = Gtk.ActionGroup("UpdateMarkdownPreview")
-		action = ("MarkdownPreview",
-		          None,
-		          _("Update Markdown Preview"),
-		          markdownShortcut,
-		          _("Preview in HTML of the current document or the selection"),
-		          lambda x, y: self.updatePreview(y, False))
-		self.actionGroup1.add_actions([action], self.window)
-		manager.insert_action_group(self.actionGroup1, -1)
-		
-		self.actionGroup2 = Gtk.ActionGroup("ToggleTab")
-		action = ("ToggleTab",
-		          None,
-		          _("Toggle Markdown Preview visibility"),
-		          markdownVisibilityShortcut,
-		          _("Display or hide the Markdown Preview panel tab"),
-		          lambda x, y: self.toggleTab())
-		self.actionGroup2.add_actions([action], self.window)
-		manager.insert_action_group(self.actionGroup2, -1)
-		
-		self.uiId = manager.new_merge_id()
-		
-		manager.add_ui(self.uiId, "/MenuBar/ToolsMenu/ToolsOps_4",
-		               "MarkdownPreview", "MarkdownPreview",
-		               Gtk.UIManagerItemType.MENUITEM, True)
-		
-		manager.add_ui(self.uiId, "/MenuBar/ToolsMenu/ToolsOps_4",
-		               "ToggleTab", "ToggleTab",
-		               Gtk.UIManagerItemType.MENUITEM, False)
+		if self.window.lookup_action("MarkdownPreview") is not None:
+			self.window.lookup_action("MarkdownPreview").set_enabled(self.window.get_active_document() is not None)
+		if self.window.lookup_action("ToggleTab") is not None:
+			self.window.lookup_action("ToggleTab").set_enabled(self.window.get_active_document() is not None)
+
+	def onCloseWebView(self, nothing):
+		self.toggleTab(self.window.lookup_action("ToggleTab"), GLib.Variant.new_boolean(False))
 	
 	def copyCurrentUrl(self):
 		self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
@@ -340,22 +325,38 @@ class MarkdownPreviewPlugin(GObject.Object, Gedit.WindowActivatable):
 		menu.append(item)
 		
 		menu.show_all()
-	
+
+	def addMarkdownPreviewTab(self):
+		if markdownPanel == "side":
+			stack = self.window.get_side_panel()
+		else:
+			stack = self.window.get_bottom_panel()
+
+		image = Gtk.Image()
+		image.set_from_icon_name("gnome-mime-text-html", Gtk.IconSize.MENU)
+
+		stack.connect("hide",self.onCloseWebView);
+		stack.add_titled(self.scrolledWindow, "MarkdownPreview", _("Markdown Preview"))
+		stack.show()
+		stack.set_visible_child(self.scrolledWindow)
+
 	def removeMarkdownPreviewTab(self):
 		if markdownPanel == "side":
-			panel = self.window.get_side_panel()
+			stack = self.window.get_side_panel()
 		else:
-			panel = self.window.get_bottom_panel()
+			stack = self.window.get_bottom_panel()
 		
-		panel.remove_item(self.scrolledWindow)
+		stack.hide()
 	
-	def toggleTab(self):
+	def toggleTab(self, action, state):
+		action.set_state(state)
+
 		if markdownPanel == "side":
-			panel = self.window.get_side_panel()
+			stack = self.window.get_side_panel()
 		else:
-			panel = self.window.get_bottom_panel()
+			stack = self.window.get_bottom_panel()
 		
-		if panel.activate_item(self.scrolledWindow):
+		if not state:
 			self.removeMarkdownPreviewTab()
 		else:
 			self.addMarkdownPreviewTab()
@@ -391,17 +392,6 @@ class MarkdownPreviewPlugin(GObject.Object, Gedit.WindowActivatable):
 		htmlDoc.load_string(html, "text/html", "utf-8", "file:///")
 		
 		self.scrolledWindow.set_placement(placement)
-		
-		if markdownPanel == "side":
-			panel = self.window.get_side_panel()
-		else:
-			panel = self.window.get_bottom_panel()
-		
-		panel.show()
-		
-		if not panel.activate_item(self.scrolledWindow):
-			self.addMarkdownPreviewTab()
-			panel.activate_item(self.scrolledWindow)
 	
 	def urlTooltipVisible(self):
 		if hasattr(self, "urlTooltip") and self.urlTooltip.get_property("visible"):
