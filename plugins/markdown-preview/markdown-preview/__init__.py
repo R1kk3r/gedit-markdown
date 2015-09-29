@@ -156,7 +156,8 @@ class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 			self.window.lookup_action("ToggleTab").set_enabled(self.window.get_active_document() is not None)
 
 	def onCloseWebView(self, nothing):
-		self.toggleTab(self.window.lookup_action("ToggleTab"), GLib.Variant.new_boolean(False))
+		if self.window.lookup_action("ToggleTab") is not None:
+			self.toggleTab(self.window.lookup_action("ToggleTab"), GLib.Variant.new_boolean(False))
 	
 	def copyCurrentUrl(self):
 		self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
