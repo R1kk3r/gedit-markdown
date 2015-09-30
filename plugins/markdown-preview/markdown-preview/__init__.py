@@ -18,6 +18,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+
+###########
+# IMPORTS #
+###########
 from gi.repository import Gio, Gdk, Gtk, Gedit, GObject, WebKit, GLib
 import codecs
 import os
@@ -27,6 +31,12 @@ import gettext
 from configparser import SafeConfigParser
 import webbrowser
 
+
+##################
+# INITIALIZATION #
+##################
+
+# Internationalization
 try:
 	appName = "markdown-preview"
 	fileDir = os.path.dirname(__file__)
@@ -39,8 +49,7 @@ except:
 # Can be used to add default HTML code (e.g. default header section with CSS).
 htmlTemplate = "%s"
 
-# Configuration.
-
+# Default configuration.
 markdownExternalBrowser = "0"
 markdownPanel = "bottom"
 markdownShortcut = "<Control><Alt>m"
@@ -48,6 +57,7 @@ markdownVersion = "extra"
 markdownVisibility = "1"
 markdownVisibilityShortcut = "<Control><Alt>v"
 
+# Load confguration from file
 try:
 	import xdg.BaseDirectory
 except ImportError:
@@ -107,6 +117,8 @@ class MarkdownPreviewAppActivatable(GObject.Object, Gedit.AppActivatable):
 
 class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 	window = GObject.property(type=Gedit.Window)
+	markdownPrevAction = None
+	toogleTabAction = None
 	currentUri = ""
 	overLinkUrl = ""
 
@@ -114,14 +126,14 @@ class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 		GObject.Object.__init__(self)
 
 	def do_activate(self):
-		markdownPrevAction = Gio.SimpleAction.new("MarkdownPreview",None)
-		toggleTabAction = Gio.SimpleAction.new_stateful("ToggleTab",None, GLib.Variant.new_boolean(markdownVisibility != 0))
+		self.markdownPrevAction = Gio.SimpleAction.new("MarkdownPreview",None)
+		self.toggleTabAction = Gio.SimpleAction.new_stateful("ToggleTab",None, GLib.Variant.new_boolean(markdownVisibility != 0))
 
-		markdownPrevAction.connect('activate', lambda x, y: self.updatePreview(y, False))
-		toggleTabAction.connect('change-state', self.toggleTab)
+		self.markdownPrevAction.connect('activate', lambda x, y: self.updatePreview(y, False))
+		self.toggleTabAction.connect('change-state', self.toggleTab)
 
-		self.window.add_action(markdownPrevAction)
-		self.window.add_action(toggleTabAction)
+		self.window.add_action(self.markdownPrevAction)
+		self.window.add_action(self.toggleTabAction)
 
 		self.scrolledWindow = Gtk.ScrolledWindow()
 		self.scrolledWindow.set_property("hscrollbar-policy", Gtk.PolicyType.AUTOMATIC)
@@ -157,7 +169,7 @@ class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 
 	def onCloseWebView(self, nothing):
 		if self.window.lookup_action("ToggleTab") is not None:
-			self.toggleTab(self.window.lookup_action("ToggleTab"), GLib.Variant.new_boolean(False))
+			self.toggleTab(self.toggleTabAction, GLib.Variant.new_boolean(False))
 	
 	def copyCurrentUrl(self):
 		self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
@@ -332,9 +344,6 @@ class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 			stack = self.window.get_side_panel()
 		else:
 			stack = self.window.get_bottom_panel()
-
-		image = Gtk.Image()
-		image.set_from_icon_name("gnome-mime-text-html", Gtk.IconSize.MENU)
 
 		stack.connect("hide",self.onCloseWebView);
 		stack.add_titled(self.scrolledWindow, "MarkdownPreview", _("Markdown Preview"))
