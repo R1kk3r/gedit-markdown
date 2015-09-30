@@ -94,6 +94,10 @@ if not os.path.exists(confDir):
 with open(confFile, "w") as confFile:
 	parser.write(confFile)
 
+#################################
+# MarkdownPreviewAppActivatable #
+#################################
+
 class MarkdownPreviewAppActivatable(GObject.Object, Gedit.AppActivatable):
 	app = GObject.property(type=Gedit.App)
 	
@@ -114,6 +118,10 @@ class MarkdownPreviewAppActivatable(GObject.Object, Gedit.AppActivatable):
 	
 	def do_deactivate(self):
 		self.menu_ext = None
+
+####################################
+# MarkdownPreviewWindowActivatable #
+####################################
 
 class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 	window = GObject.property(type=Gedit.Window)
@@ -157,20 +165,53 @@ class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 	def do_deactivate(self):
 		self.window.remove_action("MarkdownPreview")
 		self.window.remove_action("ToggleTab")
+		self.markdownPrevAction = None
+		self.toggleTabAction = None
 		
-		# Remove Markdown Preview from the panel.
 		self.removeMarkdownPreviewTab()
 
 	def do_update_state(self):
-		if self.window.lookup_action("MarkdownPreview") is not None:
-			self.window.lookup_action("MarkdownPreview").set_enabled(self.window.get_active_document() is not None)
-		if self.window.lookup_action("ToggleTab") is not None:
-			self.window.lookup_action("ToggleTab").set_enabled(self.window.get_active_document() is not None)
-
-	def onCloseWebView(self, nothing):
-		if self.window.lookup_action("ToggleTab") is not None:
-			self.toggleTab(self.toggleTabAction, GLib.Variant.new_boolean(False))
+		if self.markdownPrevAction is not None:
+			self.markdownPrevAction.set_enabled(self.window.get_active_document() is not None)
+		if self.toggleTabAction is not None:
+			self.toggleTabAction.set_enabled(self.window.get_active_document() is not None)
 	
+	def addMarkdownPreviewTab(self):
+		if markdownPanel == "side":
+			stack = self.window.get_side_panel()
+		else:
+			stack = self.window.get_bottom_panel()
+
+		stack.connect("hide",self.onStackClose);
+		stack.add_titled(self.scrolledWindow, "MarkdownPreview", _("Markdown Preview"))
+		stack.show()
+		stack.set_visible_child(self.scrolledWindow)
+
+	def removeMarkdownPreviewTab(self):
+		if markdownPanel == "side":
+			stack = self.window.get_side_panel()
+		else:
+			stack = self.window.get_bottom_panel()
+		
+		stack.remove(self.scrolledWindow)
+	
+	def onStackClose(self, nothing):
+		if self.toggleTabAction is not None:
+			self.toggleTabAction.set_state(GLib.Variant.new_boolean(False))
+
+	def toggleTab(self, action, state):
+		action.set_state(state)
+
+		if markdownPanel == "side":
+			stack = self.window.get_side_panel()
+		else:
+			stack = self.window.get_bottom_panel()
+		
+		if not state:
+			stack.hide()
+		else:
+			stack.show()
+
 	def copyCurrentUrl(self):
 		self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
 		self.clipboard.set_text(self.currentUri, -1)
@@ -338,38 +379,6 @@ class MarkdownPreviewWindowActivatable(GObject.Object, Gedit.WindowActivatable):
 		menu.append(item)
 		
 		menu.show_all()
-
-	def addMarkdownPreviewTab(self):
-		if markdownPanel == "side":
-			stack = self.window.get_side_panel()
-		else:
-			stack = self.window.get_bottom_panel()
-
-		stack.connect("hide",self.onCloseWebView);
-		stack.add_titled(self.scrolledWindow, "MarkdownPreview", _("Markdown Preview"))
-		stack.show()
-		stack.set_visible_child(self.scrolledWindow)
-
-	def removeMarkdownPreviewTab(self):
-		if markdownPanel == "side":
-			stack = self.window.get_side_panel()
-		else:
-			stack = self.window.get_bottom_panel()
-		
-		stack.hide()
-	
-	def toggleTab(self, action, state):
-		action.set_state(state)
-
-		if markdownPanel == "side":
-			stack = self.window.get_side_panel()
-		else:
-			stack = self.window.get_bottom_panel()
-		
-		if not state:
-			self.removeMarkdownPreviewTab()
-		else:
-			self.addMarkdownPreviewTab()
 	
 	def updatePreview(self, window, clear):
 		view = self.window.get_active_view()
